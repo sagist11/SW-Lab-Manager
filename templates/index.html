@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}Home - SW Labs Management{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="fas fa-flask"></i> SW Labs Overview
+        </h1>
+        
+        {% if not current_user.is_authenticated %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> Please <a href="{{ url_for('login') }}" class="alert-link">login</a> to occupy or release stations.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if labs %}
+    <div class="row">
+        {% for lab in labs %}
+        <div class="col-lg-6 col-xl-4 mb-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-building"></i> {{ lab.name }}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text text-muted">
+                        <i class="fas fa-map-marker-alt"></i> {{ lab.location or 'Location not specified' }}
+                    </p>
+                    {% if lab.description %}
+                    <p class="card-text">{{ lab.description }}</p>
+                    {% endif %}
+                    
+                    <h6 class="mt-3 mb-2">
+                        <i class="fas fa-desktop"></i> Stations ({{ lab.stations|length }})
+                    </h6>
+                    
+                    {% if lab.stations %}
+                        <div class="list-group list-group-flush">
+                            {% for station in lab.stations %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center p-2">
+                                <div>
+                                    <strong>{{ station.name }}</strong>
+                                    {% if station.is_occupied %}
+                                        <span class="badge bg-danger ms-2">
+                                            <i class="fas fa-user"></i> Occupied
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-success ms-2">
+                                            <i class="fas fa-check"></i> Available
+                                        </span>
+                                    {% endif %}
+                                </div>
+                                <a href="{{ url_for('station_detail', station_id=station.id) }}" 
+                                   class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-eye"></i> View
+                                </a>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted">No stations in this lab</p>
+                    {% endif %}
+                </div>
+                <div class="card-footer">
+                    <a href="{{ url_for('lab_detail', lab_id=lab.id) }}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-info-circle"></i> Lab Details
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="row">
+        <div class="col-12">
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i> No labs found. 
+                {% if current_user.is_authenticated and current_user.is_admin %}
+                <a href="{{ url_for('admin_panel') }}" class="alert-link">Add labs in the admin panel</a>.
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar"></i> System Statistics
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-primary">{{ labs|length }}</h3>
+                            <p class="text-muted mb-0">Total Labs</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-info">{{ labs|sum(attribute='stations|length') }}</h3>
+                            <p class="text-muted mb-0">Total Stations</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-success">{{ labs|sum(attribute='stations|selectattr("is_occupied", "equalto", false)|list|length') }}</h3>
+                            <p class="text-muted mb-0">Available Stations</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-danger">{{ labs|sum(attribute='stations|selectattr("is_occupied", "equalto", true)|list|length') }}</h3>
+                            <p class="text-muted mb-0">Occupied Stations</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
