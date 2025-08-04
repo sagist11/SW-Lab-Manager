@@ -7,15 +7,32 @@ document.addEventListener('DOMContentLoaded', function() {
         return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 
-    // Form validation
-    const forms = document.querySelectorAll('.needs-validation');
+    // Form validation and submission handling
+    const forms = document.querySelectorAll('form');
     Array.from(forms).forEach(form => {
         form.addEventListener('submit', event => {
-            if (!form.checkValidity()) {
-                event.preventDefault();
-                event.stopPropagation();
+            // Check if form has validation
+            if (form.classList.contains('needs-validation')) {
+                if (!form.checkValidity()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                form.classList.add('was-validated');
             }
-            form.classList.add('was-validated');
+            
+            // Handle loading state for submit buttons
+            const submitButton = form.querySelector('button[type="submit"]');
+            if (submitButton && form.checkValidity()) {
+                const originalText = submitButton.innerHTML;
+                submitButton.innerHTML = '<span class="loading"></span> Loading...';
+                submitButton.disabled = true;
+                
+                // Re-enable button after a timeout in case of errors
+                setTimeout(() => {
+                    submitButton.innerHTML = originalText;
+                    submitButton.disabled = false;
+                }, 10000); // 10 second timeout
+            }
         }, false);
     });
 
@@ -235,17 +252,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Initialize additional components
 function initializeComponents() {
-    // Add loading states to buttons
-    const submitButtons = document.querySelectorAll('button[type="submit"]');
-    submitButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            if (this.form && this.form.checkValidity()) {
-                this.innerHTML = '<span class="loading"></span> Loading...';
-                this.disabled = true;
-            }
-        });
-    });
-
     // Add copy to clipboard functionality
     const copyButtons = document.querySelectorAll('.btn-copy');
     copyButtons.forEach(button => {

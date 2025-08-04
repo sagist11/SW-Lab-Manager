@@ -168,7 +168,8 @@
                                 <th>ID</th>
                                 <th>Name</th>
                                 <th>Lab</th>
-                                <th>Status</th>
+                                <th>Functional Status</th>
+                                <th>Occupation Status</th>
                                 <th>Devices</th>
                                 <th>Created</th>
                                 <th>Actions</th>
@@ -181,22 +182,49 @@
                                 <td>{{ station.name }}</td>
                                 <td>{{ station.lab.name }}</td>
                                 <td>
-                                    {% if station.is_occupied %}
-                                        <span class="badge bg-danger">Occupied</span>
+                                    {% if station.is_functional %}
+                                        <span class="badge bg-success">
+                                            <i class="fas fa-check"></i> Functional
+                                        </span>
                                     {% else %}
-                                        <span class="badge bg-success">Available</span>
+                                        <span class="badge bg-danger">
+                                            <i class="fas fa-times"></i> Non-functional
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if station.is_occupied %}
+                                        <span class="badge bg-warning text-dark">
+                                            <i class="fas fa-user"></i> Occupied
+                                        </span>
+                                        {% if station.occupied_until %}
+                                            <br><small class="text-muted">Until: {{ station.occupied_until.strftime('%H:%M') }}</small>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="badge bg-success">
+                                            <i class="fas fa-check"></i> Available
+                                        </span>
                                     {% endif %}
                                 </td>
                                 <td>{{ station.devices|length }}</td>
                                 <td>{{ station.created_at.strftime('%Y-%m-%d') }}</td>
                                 <td>
-                                    <a href="{{ url_for('station_detail', station_id=station.id) }}" class="btn btn-sm btn-outline-primary">
+                                    <a href="{{ url_for('station_detail', station_id=station.id) }}" class="btn btn-sm btn-outline-primary" title="View Details">
                                         <i class="fas fa-eye"></i>
                                     </a>
-                                    <button class="btn btn-sm btn-outline-warning">
+                                    <form method="POST" action="{{ url_for('toggle_station_functional', station_id=station.id) }}" style="display: inline;">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Toggle Functional Status">
+                                            {% if station.is_functional %}
+                                                <i class="fas fa-times"></i>
+                                            {% else %}
+                                                <i class="fas fa-check"></i>
+                                            {% endif %}
+                                        </button>
+                                    </form>
+                                    <button class="btn btn-sm btn-outline-warning" title="Edit">
                                         <i class="fas fa-edit"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-danger">
+                                    <button class="btn btn-sm btn-outline-danger" title="Delete">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </td>

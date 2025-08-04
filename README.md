@@ -1,251 +1,212 @@
 # SW Labs Management System
 
-A comprehensive web application for managing and monitoring software development labs, stations, and devices. Built with Python Flask and modern web technologies.
+A comprehensive laboratory management system for software development labs, built with Flask and featuring file-based storage.
 
 ## Features
 
-### Core Functionality
-- **Lab Management**: Create and manage multiple labs with locations and descriptions
-- **Station Management**: Organize stations within labs with occupancy tracking
+- **Lab Management**: Create and manage multiple laboratories
+- **Station Management**: Track individual workstations within labs
 - **Device Monitoring**: Monitor PCs and servers with real-time ping status
-- **User Management**: User authentication with admin privileges
-- **Occupancy System**: Users can occupy and release stations
-- **Real-time Status**: Live monitoring of device connectivity
+- **User Management**: Admin and regular user roles with authentication
+- **File-Based Storage**: Data stored in JSON files for easy backup and portability
+- **Real-time Status**: Live device status monitoring
+- **Responsive UI**: Modern Bootstrap-based interface
 
-### Admin Features
-- **Complete CRUD Operations**: Add, edit, and remove labs, stations, devices, and users
-- **System Overview**: Dashboard with statistics and system health
-- **User Management**: Create users with different privilege levels
-- **Device Configuration**: Configure device types, IP addresses, and special applications
-
-### User Features
-- **Station Reservation**: Occupy and release stations
-- **Status Monitoring**: View real-time device status
-- **Lab Navigation**: Browse labs and stations with detailed information
-- **Responsive Design**: Works on desktop, tablet, and mobile devices
-
-## Technology Stack
-
-- **Backend**: Python Flask
-- **Database**: SQLite (file-based)
-- **Frontend**: Bootstrap 5, HTML5, CSS3, JavaScript
-- **Icons**: Font Awesome
-- **Monitoring**: ping3 library for device connectivity
-- **Authentication**: Flask-Login
-
-## Installation
+## Quick Start
 
 ### Prerequisites
+
 - Python 3.7 or higher
 - pip (Python package installer)
 
-### Setup Instructions
+### Installation
 
 1. **Clone or download the project**
    ```bash
    git clone <repository-url>
-   cd sw-labs-management
+   cd SW-Lab-Manager
    ```
 
-2. **Create a virtual environment (recommended)**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
+2. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Run the application**
+3. **Run the application**
    ```bash
-   python app.py
+   python run.py
    ```
 
-5. **Access the application**
-   - Open your web browser
-   - Navigate to `http://localhost:5000`
+4. **Access the application**
+   - Open your browser and go to: `http://localhost:5000`
    - Default admin credentials: `admin` / `admin123`
 
-## Database Structure
+## File-Based Storage
 
-The application uses SQLite with the following main entities:
+The system now uses JSON files for data storage instead of SQLite database:
 
-### Labs
-- ID, Name, Description, Location, Created Date
-- Contains multiple stations
+- **`data/users.json`**: User accounts and authentication data
+- **`data/labs.json`**: Laboratory information
+- **`data/stations.json`**: Workstation data within labs
+- **`data/devices.json`**: Device information and status
 
-### Stations
-- ID, Name, Description, Lab ID, Occupancy Status
-- Contains multiple devices (PCs/Servers)
+### Benefits of File-Based Storage
 
-### Devices
-- ID, Name, Type (PC/Server), IP Address, OS Info, Special Apps
-- Online/Offline status with ping monitoring
+- **Easy Backup**: Simply copy the `data/` folder to backup all data
+- **Portable**: Move data between systems by copying JSON files
+- **Human Readable**: JSON files can be easily viewed and edited
+- **Version Control Friendly**: JSON files work well with Git
+- **No Database Setup**: No need to install or configure databases
 
-### Users
-- ID, Username, Email, Password Hash, Admin Status
-- Authentication and authorization
+### Data Migration
 
-## Usage Guide
-
-### For Administrators
-
-1. **Login with admin credentials**
-   - Username: `admin`
-   - Password: `admin123`
-
-2. **Add Labs**
-   - Go to Admin Panel → Add Lab
-   - Provide lab name, location, and description
-
-3. **Add Stations**
-   - Go to Admin Panel → Add Station
-   - Select the lab and provide station details
-
-4. **Add Devices**
-   - Go to Admin Panel → Add Device
-   - Configure device type, IP address, and special applications
-
-5. **Manage Users**
-   - Go to Admin Panel → Add User
-   - Create users with appropriate privilege levels
-
-### For Regular Users
-
-1. **Browse Labs**
-   - View all available labs on the home page
-   - Click on labs to see detailed information
-
-2. **View Stations**
-   - Navigate through labs to see stations
-   - View device status and information
-
-3. **Occupy Stations**
-   - Click "Occupy" on available stations
-   - You'll be responsible for the station until you release it
-
-4. **Release Stations**
-   - Click "Release" on occupied stations
-   - Only you or an admin can release your occupied stations
-
-## Configuration
-
-### Environment Variables
-Create a `.env` file in the project root for custom configuration:
-
-```env
-SECRET_KEY=your-secret-key-here
-DATABASE_URL=sqlite:///sw_labs.db
-FLASK_ENV=development
-```
-
-### Ping Monitoring
-The system automatically pings devices every 30 seconds to check connectivity. You can modify this interval in `app.py`:
-
-```python
-time.sleep(30)  # Change this value to adjust ping frequency
-```
-
-## API Endpoints
-
-### Public Endpoints
-- `GET /` - Home page with labs overview
-- `GET /lab/<id>` - Lab details
-- `GET /station/<id>` - Station details
-- `GET /api/device_status` - Device status API
-
-### Protected Endpoints
-- `POST /occupy_station/<id>` - Occupy a station
-- `POST /release_station/<id>` - Release a station
-- `GET /admin` - Admin panel (admin only)
-- `POST /admin/lab/add` - Add new lab (admin only)
-- `POST /admin/station/add` - Add new station (admin only)
-- `POST /admin/device/add` - Add new device (admin only)
-- `POST /admin/user/add` - Add new user (admin only)
-
-## Security Features
-
-- **Password Hashing**: All passwords are securely hashed using Werkzeug
-- **Session Management**: Flask-Login handles user sessions
-- **Admin Protection**: Admin routes are protected with privilege checks
-- **CSRF Protection**: Forms include CSRF protection
-- **Input Validation**: Server-side validation for all inputs
-
-## Monitoring and Maintenance
-
-### Database Backup
-The SQLite database is stored in `sw_labs.db`. Regular backups are recommended:
+If you have existing data in the SQLite database, you can migrate it to JSON files:
 
 ```bash
-cp sw_labs.db sw_labs_backup_$(date +%Y%m%d).db
+python migrate_to_files.py
 ```
 
-### Logs
-Application logs are printed to the console. For production, consider using a proper logging system.
+This will create the `data/` directory with JSON files containing your existing data.
 
-### Performance
-- Device ping monitoring runs in a separate thread
-- Database queries are optimized with SQLAlchemy
-- Static assets are served efficiently
+## System Architecture
+
+### Core Components
+
+- **Flask Web Framework**: Backend API and web interface
+- **Flask-Login**: User authentication and session management
+- **Bootstrap 5**: Modern responsive UI
+- **ping3**: Network device monitoring
+- **JSON Storage**: File-based data persistence
+
+### Data Structure
+
+```
+data/
+├── users.json      # User accounts
+├── labs.json       # Laboratories
+├── stations.json   # Workstations
+└── devices.json    # Devices (PCs/Servers)
+```
+
+## Usage
+
+### Admin Panel
+
+Access the admin panel to manage:
+- **Labs**: Create and configure laboratories
+- **Stations**: Add workstations to labs
+- **Devices**: Configure PCs and servers with IP addresses
+- **Users**: Create and manage user accounts
+
+### Regular Users
+
+Regular users can:
+- View lab and station information
+- Occupy and release stations
+- Monitor device status
+- View their activity history
+
+### Device Monitoring
+
+The system automatically pings devices every 30 seconds to check their online status. Device status is displayed in real-time on the web interface.
 
 ## Troubleshooting
 
-### Common Issues
+### Login Issues
 
-1. **Port already in use**
-   - Change the port in `app.py`: `app.run(port=5001)`
+If you experience login problems:
 
-2. **Database errors**
-   - Delete `sw_labs.db` and restart the application
-   - The database will be recreated automatically
+1. **Clear browser cache and cookies**
+2. **Check that the data/users.json file exists**
+3. **Verify admin credentials**: `admin` / `admin123`
+4. **Restart the application**
 
-3. **Ping failures**
-   - Ensure devices have valid IP addresses
-   - Check network connectivity
-   - Verify firewall settings
+### Device Monitoring Issues
 
-4. **Permission errors**
-   - Ensure the application has write permissions for the database file
-   - Check file system permissions
+If devices show as offline:
 
-### Support
-For issues and questions:
-1. Check the console output for error messages
-2. Verify all dependencies are installed correctly
-3. Ensure Python version is 3.7 or higher
+1. **Check IP addresses** are correct in device configuration
+2. **Verify network connectivity** between the server and devices
+3. **Check firewall settings** that might block ping requests
+4. **Ensure devices are powered on** and connected to the network
+
+### File Storage Issues
+
+If data files are corrupted:
+
+1. **Backup the data/ directory** before making changes
+2. **Check JSON syntax** in the data files
+3. **Restore from backup** if needed
+4. **Run the migration script** to recreate files
 
 ## Development
 
 ### Adding New Features
-1. Create new routes in `app.py`
-2. Add corresponding templates in `templates/`
-3. Update static files as needed
-4. Test thoroughly before deployment
 
-### Customization
-- Modify `static/css/style.css` for custom styling
-- Update `static/js/app.js` for additional functionality
-- Customize templates in the `templates/` directory
+1. **Backend**: Add routes in `app.py`
+2. **Frontend**: Create templates in `templates/`
+3. **Styling**: Update `static/css/style.css`
+4. **JavaScript**: Modify `static/js/app.js`
+
+### Data Model Changes
+
+When modifying data structures:
+
+1. **Update the JSON file schemas**
+2. **Modify the file-based storage functions** in `app.py`
+3. **Update the migration script** if needed
+4. **Test with sample data**
+
+## Security Considerations
+
+- **Password Hashing**: All passwords are hashed using Werkzeug's security functions
+- **Session Management**: Flask-Login handles secure session management
+- **Input Validation**: All user inputs are validated and sanitized
+- **File Permissions**: Ensure data files have appropriate read/write permissions
+
+## Backup and Recovery
+
+### Regular Backups
+
+```bash
+# Backup all data
+cp -r data/ backup/data_$(date +%Y%m%d_%H%M%S)/
+
+# Restore from backup
+cp -r backup/data_YYYYMMDD_HHMMSS/* data/
+```
+
+### Data Export
+
+You can export data to CSV format for external analysis:
+
+```bash
+python export_to_csv.py
+```
 
 ## License
 
-This project is open source and available under the MIT License.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Contributing
+## Support
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+For issues and questions:
+1. Check the troubleshooting section above
+2. Review the data files for corruption
+3. Check the application logs for error messages
+4. Create an issue in the project repository
 
----
+## Changelog
 
-**Note**: This is a development system. For production use, consider:
-- Using a production-grade database (PostgreSQL, MySQL)
-- Implementing proper logging
-- Adding HTTPS support
-- Setting up monitoring and alerting
-- Regular security updates
+### Version 2.0
+- **NEW**: File-based storage system (JSON)
+- **FIXED**: Login loading issue
+- **IMPROVED**: Better error handling
+- **ADDED**: Data migration script
+- **ENHANCED**: Backup and recovery procedures
+
+### Version 1.0
+- Initial release with SQLite database
+- Basic lab and station management
+- Device monitoring functionality
+- User authentication system

@@ -50,6 +50,18 @@ def create_sample_data():
         print(f"✗ Error creating sample data: {e}")
         return False
 
+def setup_file_storage():
+    """Setup file-based storage"""
+    try:
+        print("Setting up file-based storage...")
+        from migrate_to_files import create_sample_data_files
+        create_sample_data_files()
+        print("✓ File-based storage setup complete")
+        return True
+    except Exception as e:
+        print(f"✗ Error setting up file storage: {e}")
+        return False
+
 def main():
     """Main startup function"""
     print("=" * 50)
@@ -70,7 +82,10 @@ def main():
         else:
             return
     
-    # Create sample data
+    # Setup file-based storage
+    setup_file_storage()
+    
+    # Create sample data (for backward compatibility)
     create_sample_data()
     
     print("\nStarting SW Labs Management System...")

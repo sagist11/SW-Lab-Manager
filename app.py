@@ -1,83 +1,309 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
-from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import threading
 import time
 from ping3 import ping
 import psutil
+import json
+import csv
+from pathlib import Path
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///sw_labs.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-db = SQLAlchemy(app)
+# File-based storage configuration
+DATA_DIR = Path('data')
+DATA_DIR.mkdir(exist_ok=True)
+
+USERS_FILE = DATA_DIR / 'users.json'
+LABS_FILE = DATA_DIR / 'labs.json'
+STATIONS_FILE = DATA_DIR / 'stations.json'
+DEVICES_FILE = DATA_DIR / 'devices.json'
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# Database Models
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(120), nullable=False)
-    is_admin = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+# Data Models (for template compatibility)
+class User(UserMixin):
+    def __init__(self, user_data):
+        self.id = user_data['id']
+        self.username = user_data['username']
+        self.email = user_data['email']
+        self.password_hash = user_data['password_hash']
+        self.is_admin = user_data['is_admin']
+        self.created_at = datetime.fromisoformat(user_data['created_at'])
 
-class Lab(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text)
-    location = db.Column(db.String(100))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    stations = db.relationship('Station', backref='lab', lazy=True, cascade='all, delete-orphan')
+class Lab:
+    def __init__(self, lab_data):
+        self.id = lab_data['id']
+        self.name = lab_data['name']
+        self.description = lab_data.get('description', '')
+        self.location = lab_data.get('location', '')
+        self.created_at = datetime.fromisoformat(lab_data['created_at'])
+        self.stations = []
 
-class Station(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text)
-    lab_id = db.Column(db.Integer, db.ForeignKey('lab.id'), nullable=False)
-    is_occupied = db.Column(db.Boolean, default=False)
-    occupied_by = db.Column(db.Integer, db.ForeignKey('user.id'))
-    occupied_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    devices = db.relationship('Device', backref='station', lazy=True, cascade='all, delete-orphan')
+class Station:
+    def __init__(self, station_data):
+        self.id = station_data['id']
+        self.name = station_data['name']
+        self.description = station_data.get('description', '')
+        self.lab_id = station_data['lab_id']
+        self.is_occupied = station_data['is_occupied']
+        self.occupied_by = station_data.get('occupied_by')
+        self.occupied_at = datetime.fromisoformat(station_data['occupied_at']) if station_data.get('occupied_at') else None
+        self.occupied_until = datetime.fromisoformat(station_data['occupied_until']) if station_data.get('occupied_until') else None
+        self.is_functional = station_data.get('is_functional', True)
+        self.created_at = datetime.fromisoformat(station_data['created_at'])
+        self.devices = []
+        self.lab = None  # Will be set when needed
 
-class Device(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    device_type = db.Column(db.String(20), nullable=False)  # 'PC' or 'Server'
-    ip_address = db.Column(db.String(15), nullable=False)
-    os_info = db.Column(db.String(200))
-    special_apps = db.Column(db.Text)
-    is_online = db.Column(db.Boolean, default=False)
-    last_ping = db.Column(db.DateTime)
-    station_id = db.Column(db.Integer, db.ForeignKey('station.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+class Device:
+    def __init__(self, device_data):
+        self.id = device_data['id']
+        self.name = device_data['name']
+        self.device_type = device_data['device_type']
+        self.ip_address = device_data['ip_address']
+        self.os_info = device_data.get('os_info', '')
+        self.special_apps = device_data.get('special_apps', '')
+        self.is_online = device_data.get('is_online', False)
+        self.last_ping = datetime.fromisoformat(device_data['last_ping']) if device_data.get('last_ping') else None
+        self.station_id = device_data['station_id']
+        self.created_at = datetime.fromisoformat(device_data['created_at'])
+        self.station = None  # Will be set when needed
+
+# File-based storage functions
+def load_json_data(filename):
+    """Load data from JSON file"""
+    if filename.exists():
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            return []
+    return []
+
+def save_json_data(filename, data):
+    """Save data to JSON file"""
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, default=str)
+        return True
+    except Exception as e:
+        print(f"Error saving to {filename}: {e}")
+        return False
+
+def get_next_id(data_list):
+    """Get next available ID for a list of objects"""
+    if not data_list:
+        return 1
+    return max(item.get('id', 0) for item in data_list) + 1
+
+# File-based user management
+def get_user_by_username(username):
+    """Get user by username from file storage"""
+    users = load_json_data(USERS_FILE)
+    for user in users:
+        if user.get('username') == username:
+            return user
+    return None
+
+# File-based data management functions
+def get_all_labs():
+    """Get all labs from file storage"""
+    labs_data = load_json_data(LABS_FILE)
+    stations_data = load_json_data(STATIONS_FILE)
+    devices_data = load_json_data(DEVICES_FILE)
+    
+    labs = []
+    for lab_data in labs_data:
+        lab = Lab(lab_data)
+        
+        # Get stations for this lab
+        for station_data in stations_data:
+            if station_data['lab_id'] == lab.id:
+                station = Station(station_data)
+                
+                # Get devices for this station
+                for device_data in devices_data:
+                    if device_data['station_id'] == station.id:
+                        device = Device(device_data)
+                        station.devices.append(device)
+                
+                lab.stations.append(station)
+        
+        labs.append(lab)
+    return labs
+
+def get_lab_by_id(lab_id):
+    """Get a specific lab by ID"""
+    labs = get_all_labs()
+    for lab in labs:
+        if lab.id == lab_id:
+            return lab
+    return None
+
+def get_station_by_id(station_id):
+    """Get a specific station by ID"""
+    stations_data = load_json_data(STATIONS_FILE)
+    devices_data = load_json_data(DEVICES_FILE)
+    labs_data = load_json_data(LABS_FILE)
+    
+    for station_data in stations_data:
+        if station_data['id'] == station_id:
+            station = Station(station_data)
+            
+            # Get lab for this station
+            for lab_data in labs_data:
+                if lab_data['id'] == station.lab_id:
+                    station.lab = Lab(lab_data)
+                    break
+            
+            # Get devices for this station
+            for device_data in devices_data:
+                if device_data['station_id'] == station.id:
+                    device = Device(device_data)
+                    station.devices.append(device)
+            
+            return station
+    return None
+
+def get_all_stations():
+    """Get all stations from file storage"""
+    stations_data = load_json_data(STATIONS_FILE)
+    devices_data = load_json_data(DEVICES_FILE)
+    labs_data = load_json_data(LABS_FILE)
+    
+    stations = []
+    for station_data in stations_data:
+        station = Station(station_data)
+        
+        # Get lab for this station
+        for lab_data in labs_data:
+            if lab_data['id'] == station.lab_id:
+                station.lab = Lab(lab_data)
+                break
+        
+        # Get devices for this station
+        for device_data in devices_data:
+            if device_data['station_id'] == station.id:
+                device = Device(device_data)
+                station.devices.append(device)
+        
+        stations.append(station)
+    return stations
+
+def get_all_devices():
+    """Get all devices from file storage"""
+    devices_data = load_json_data(DEVICES_FILE)
+    stations_data = load_json_data(STATIONS_FILE)
+    
+    devices = []
+    for device_data in devices_data:
+        device = Device(device_data)
+        
+        # Get station for this device
+        for station_data in stations_data:
+            if station_data['id'] == device.station_id:
+                device.station = Station(station_data)
+                break
+        
+        devices.append(device)
+    return devices
+
+def get_all_users():
+    """Get all users from file storage"""
+    users_data = load_json_data(USERS_FILE)
+    return [User(user_data) for user_data in users_data]
+
+def create_user(username, email, password, is_admin=False):
+    """Create a new user in file storage"""
+    users = load_json_data(USERS_FILE)
+    user_id = get_next_id(users)
+    
+    new_user = {
+        'id': user_id,
+        'username': username,
+        'email': email,
+        'password_hash': generate_password_hash(password),
+        'is_admin': is_admin,
+        'created_at': datetime.utcnow().isoformat()
+    }
+    
+    users.append(new_user)
+    if save_json_data(USERS_FILE, users):
+        return new_user
+    return None
+
+def get_user_by_id(user_id):
+    """Get user by ID from file storage"""
+    users = load_json_data(USERS_FILE)
+    for user in users:
+        if user.get('id') == user_id:
+            return user
+    return None
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    user_data = get_user_by_id(int(user_id))
+    if user_data:
+        return User(user_data)
+    return None
+
+# Auto-release monitoring thread
+def auto_release_stations():
+    """Automatically release stations whose time has expired"""
+    while True:
+        try:
+            stations_data = load_json_data(STATIONS_FILE)
+            current_time = datetime.utcnow()
+            updated = False
+            
+            for station_data in stations_data:
+                if (station_data['is_occupied'] and 
+                    station_data['occupied_until'] and 
+                    datetime.fromisoformat(station_data['occupied_until']) <= current_time):
+                    
+                    # Auto-release the station
+                    station_data['is_occupied'] = False
+                    station_data['occupied_by'] = None
+                    station_data['occupied_at'] = None
+                    station_data['occupied_until'] = None
+                    updated = True
+                    print(f"Auto-released station {station_data['name']} (ID: {station_data['id']})")
+            
+            if updated:
+                save_json_data(STATIONS_FILE, stations_data)
+                
+        except Exception as e:
+            print(f"Error in auto-release monitoring: {e}")
+        
+        time.sleep(60)  # Check every minute
 
 # Ping monitoring thread
 def ping_devices():
     while True:
         try:
-            devices = Device.query.all()
-            for device in devices:
-                try:
-                    result = ping(device.ip_address, timeout=2)
-                    device.is_online = result is not None
-                    device.last_ping = datetime.utcnow()
-                except:
-                    device.is_online = False
-                    device.last_ping = datetime.utcnow()
+            devices_data = load_json_data(DEVICES_FILE)
+            updated = False
             
-            db.session.commit()
+            for device_data in devices_data:
+                try:
+                    result = ping(device_data['ip_address'], timeout=2)
+                    device_data['is_online'] = result is not None
+                    device_data['last_ping'] = datetime.utcnow().isoformat()
+                    updated = True
+                except:
+                    device_data['is_online'] = False
+                    device_data['last_ping'] = datetime.utcnow().isoformat()
+                    updated = True
+            
+            if updated:
+                save_json_data(DEVICES_FILE, devices_data)
+                
         except Exception as e:
             print(f"Error in ping monitoring: {e}")
         
@@ -86,19 +312,35 @@ def ping_devices():
 # Routes
 @app.route('/')
 def index():
-    labs = Lab.query.all()
-    return render_template('index.html', labs=labs)
+    labs = get_all_labs()
+    
+    # Calculate statistics
+    total_labs = len(labs)
+    total_stations = sum(len(lab.stations) for lab in labs)
+    available_stations = sum(len([s for s in lab.stations if not s.is_occupied]) for lab in labs)
+    occupied_stations = sum(len([s for s in lab.stations if s.is_occupied]) for lab in labs)
+    
+    return render_template('index.html', 
+                         labs=labs, 
+                         total_labs=total_labs,
+                         total_stations=total_stations,
+                         available_stations=available_stations,
+                         occupied_stations=occupied_stations)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        user = User.query.filter_by(username=username).first()
         
-        if user and check_password_hash(user.password_hash, password):
-            login_user(user)
-            return redirect(url_for('index'))
+        user_data = get_user_by_username(username)
+        if user_data:
+            user = User(user_data)
+            if check_password_hash(user.password_hash, password):
+                login_user(user)
+                return redirect(url_for('index'))
+            else:
+                flash('Invalid username or password')
         else:
             flash('Invalid username or password')
     
@@ -112,35 +354,78 @@ def logout():
 
 @app.route('/lab/<int:lab_id>')
 def lab_detail(lab_id):
-    lab = Lab.query.get_or_404(lab_id)
+    lab = get_lab_by_id(lab_id)
+    if not lab:
+        flash('Lab not found')
+        return redirect(url_for('index'))
     return render_template('lab_detail.html', lab=lab)
 
 @app.route('/station/<int:station_id>')
 def station_detail(station_id):
-    station = Station.query.get_or_404(station_id)
+    station = get_station_by_id(station_id)
+    if not station:
+        flash('Station not found')
+        return redirect(url_for('index'))
     return render_template('station_detail.html', station=station)
 
-@app.route('/occupy_station/<int:station_id>', methods=['POST'])
+@app.route('/occupy_station/<int:station_id>', methods=['GET', 'POST'])
 @login_required
 def occupy_station(station_id):
-    station = Station.query.get_or_404(station_id)
+    if request.method == 'GET':
+        # Show occupation form with scheduler
+        station = get_station_by_id(station_id)
+        if not station:
+            flash('Station not found')
+            return redirect(url_for('index'))
+        return render_template('occupy_station.html', station=station)
+    
+    # Handle POST request
+    station = get_station_by_id(station_id)
+    if not station:
+        flash('Station not found')
+        return redirect(url_for('index'))
     
     if station.is_occupied:
         flash('Station is already occupied')
         return redirect(url_for('station_detail', station_id=station_id))
     
-    station.is_occupied = True
-    station.occupied_by = current_user.id
-    station.occupied_at = datetime.utcnow()
-    db.session.commit()
+    # Get occupation duration/end time
+    occupation_type = request.form.get('occupation_type')
+    occupation_until = None
     
-    flash('Station occupied successfully')
+    if occupation_type == 'duration':
+        duration_hours = int(request.form.get('duration_hours', 1))
+        occupation_until = datetime.utcnow() + timedelta(hours=duration_hours)
+    elif occupation_type == 'until':
+        occupation_until_str = request.form.get('occupation_until')
+        if occupation_until_str:
+            occupation_until = datetime.fromisoformat(occupation_until_str.replace('T', ' '))
+    
+    # Update file-based storage
+    stations_data = load_json_data(STATIONS_FILE)
+    for station_data in stations_data:
+        if station_data['id'] == station_id:
+            station_data['is_occupied'] = True
+            station_data['occupied_by'] = current_user.id
+            station_data['occupied_at'] = datetime.utcnow().isoformat()
+            station_data['occupied_until'] = occupation_until.isoformat() if occupation_until else None
+            break
+    save_json_data(STATIONS_FILE, stations_data)
+    
+    if occupation_until:
+        flash(f'Station occupied successfully until {occupation_until.strftime("%Y-%m-%d %H:%M")}')
+    else:
+        flash('Station occupied successfully (no time limit)')
+    
     return redirect(url_for('station_detail', station_id=station_id))
 
 @app.route('/release_station/<int:station_id>', methods=['POST'])
 @login_required
 def release_station(station_id):
-    station = Station.query.get_or_404(station_id)
+    station = get_station_by_id(station_id)
+    if not station:
+        flash('Station not found')
+        return redirect(url_for('index'))
     
     if not station.is_occupied:
         flash('Station is not occupied')
@@ -150,10 +435,16 @@ def release_station(station_id):
         flash('You can only release stations you occupied')
         return redirect(url_for('station_detail', station_id=station_id))
     
-    station.is_occupied = False
-    station.occupied_by = None
-    station.occupied_at = None
-    db.session.commit()
+    # Update file-based storage
+    stations_data = load_json_data(STATIONS_FILE)
+    for station_data in stations_data:
+        if station_data['id'] == station_id:
+            station_data['is_occupied'] = False
+            station_data['occupied_by'] = None
+            station_data['occupied_at'] = None
+            station_data['occupied_until'] = None
+            break
+    save_json_data(STATIONS_FILE, stations_data)
     
     flash('Station released successfully')
     return redirect(url_for('station_detail', station_id=station_id))
@@ -166,10 +457,10 @@ def admin_panel():
         flash('Access denied. Admin privileges required.')
         return redirect(url_for('index'))
     
-    labs = Lab.query.all()
-    stations = Station.query.all()
-    devices = Device.query.all()
-    users = User.query.all()
+    labs = get_all_labs()
+    stations = get_all_stations()
+    devices = get_all_devices()
+    users = get_all_users()
     
     return render_template('admin_panel.html', labs=labs, stations=stations, devices=devices, users=users)
 
@@ -185,9 +476,20 @@ def add_lab():
         description = request.form['description']
         location = request.form['location']
         
-        lab = Lab(name=name, description=description, location=location)
-        db.session.add(lab)
-        db.session.commit()
+        # Add to file-based storage
+        labs_data = load_json_data(LABS_FILE)
+        lab_id = get_next_id(labs_data)
+        
+        new_lab = {
+            'id': lab_id,
+            'name': name,
+            'description': description,
+            'location': location,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        
+        labs_data.append(new_lab)
+        save_json_data(LABS_FILE, labs_data)
         
         flash('Lab added successfully')
         return redirect(url_for('admin_panel'))
@@ -204,17 +506,59 @@ def add_station():
     if request.method == 'POST':
         name = request.form['name']
         description = request.form['description']
-        lab_id = request.form['lab_id']
+        lab_id = int(request.form['lab_id'])
+        is_functional = 'is_functional' in request.form
         
-        station = Station(name=name, description=description, lab_id=lab_id)
-        db.session.add(station)
-        db.session.commit()
+        # Add to file-based storage
+        stations_data = load_json_data(STATIONS_FILE)
+        station_id = get_next_id(stations_data)
+        
+        new_station = {
+            'id': station_id,
+            'name': name,
+            'description': description,
+            'lab_id': lab_id,
+            'is_occupied': False,
+            'occupied_by': None,
+            'occupied_at': None,
+            'occupied_until': None,
+            'is_functional': is_functional,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        
+        stations_data.append(new_station)
+        save_json_data(STATIONS_FILE, stations_data)
         
         flash('Station added successfully')
         return redirect(url_for('admin_panel'))
     
-    labs = Lab.query.all()
+    labs = get_all_labs()
     return render_template('add_station.html', labs=labs)
+
+@app.route('/admin/station/<int:station_id>/toggle_functional', methods=['POST'])
+@login_required
+def toggle_station_functional(station_id):
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.')
+        return redirect(url_for('index'))
+    
+    # Update file-based storage
+    stations_data = load_json_data(STATIONS_FILE)
+    station_name = None
+    for station_data in stations_data:
+        if station_data['id'] == station_id:
+            station_data['is_functional'] = not station_data['is_functional']
+            station_name = station_data['name']
+            break
+    
+    if station_name:
+        save_json_data(STATIONS_FILE, stations_data)
+        status = "functional" if station_data['is_functional'] else "non-functional"
+        flash(f'Station {station_name} marked as {status}')
+    else:
+        flash('Station not found')
+    
+    return redirect(url_for('admin_panel'))
 
 @app.route('/admin/device/add', methods=['GET', 'POST'])
 @login_required
@@ -229,19 +573,32 @@ def add_device():
         ip_address = request.form['ip_address']
         os_info = request.form['os_info']
         special_apps = request.form['special_apps']
-        station_id = request.form['station_id']
+        station_id = int(request.form['station_id'])
         
-        device = Device(
-            name=name, device_type=device_type, ip_address=ip_address,
-            os_info=os_info, special_apps=special_apps, station_id=station_id
-        )
-        db.session.add(device)
-        db.session.commit()
+        # Add to file-based storage
+        devices_data = load_json_data(DEVICES_FILE)
+        device_id = get_next_id(devices_data)
+        
+        new_device = {
+            'id': device_id,
+            'name': name,
+            'device_type': device_type,
+            'ip_address': ip_address,
+            'os_info': os_info,
+            'special_apps': special_apps,
+            'station_id': station_id,
+            'is_online': False,
+            'last_ping': None,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        
+        devices_data.append(new_device)
+        save_json_data(DEVICES_FILE, devices_data)
         
         flash('Device added successfully')
         return redirect(url_for('admin_panel'))
     
-    stations = Station.query.all()
+    stations = get_all_stations()
     return render_template('add_device.html', stations=stations)
 
 @app.route('/admin/user/add', methods=['GET', 'POST'])
@@ -257,13 +614,21 @@ def add_user():
         password = request.form['password']
         is_admin = 'is_admin' in request.form
         
-        user = User(
-            username=username, email=email,
-            password_hash=generate_password_hash(password),
-            is_admin=is_admin
-        )
-        db.session.add(user)
-        db.session.commit()
+        # Add to file-based storage
+        users_data = load_json_data(USERS_FILE)
+        user_id = get_next_id(users_data)
+        
+        new_user = {
+            'id': user_id,
+            'username': username,
+            'email': email,
+            'password_hash': generate_password_hash(password),
+            'is_admin': is_admin,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        
+        users_data.append(new_user)
+        save_json_data(USERS_FILE, users_data)
         
         flash('User added successfully')
         return redirect(url_for('admin_panel'))
@@ -273,37 +638,31 @@ def add_user():
 # API routes for AJAX updates
 @app.route('/api/device_status')
 def device_status():
-    devices = Device.query.all()
+    devices_data = load_json_data(DEVICES_FILE)
     status_data = []
     
-    for device in devices:
+    for device_data in devices_data:
         status_data.append({
-            'id': device.id,
-            'name': device.name,
-            'is_online': device.is_online,
-            'last_ping': device.last_ping.isoformat() if device.last_ping else None
+            'id': device_data['id'],
+            'name': device_data['name'],
+            'is_online': device_data.get('is_online', False),
+            'last_ping': device_data.get('last_ping')
         })
     
     return jsonify(status_data)
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        
-        # Create admin user if none exists
-        admin = User.query.filter_by(username='admin').first()
-        if not admin:
-            admin = User(
-                username='admin',
-                email='admin@swlabs.com',
-                password_hash=generate_password_hash('admin123'),
-                is_admin=True
-            )
-            db.session.add(admin)
-            db.session.commit()
+    # Create admin user in file storage if none exists
+    admin_data = get_user_by_username('admin')
+    if not admin_data:
+        create_user('admin', 'admin@swlabs.com', 'admin123', is_admin=True)
+        print("✓ Admin user created in file storage")
     
-    # Start ping monitoring in a separate thread
+    # Start monitoring threads
     ping_thread = threading.Thread(target=ping_devices, daemon=True)
     ping_thread.start()
+    
+    auto_release_thread = threading.Thread(target=auto_release_stations, daemon=True)
+    auto_release_thread.start()
     
     app.run(debug=True, host='0.0.0.0', port=5000)
