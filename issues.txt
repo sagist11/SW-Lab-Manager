@@ -5,3 +5,4 @@ and the expected is that the ping will return and display the devices as online,
 they should open the edit option for the selected item (lab, station, device, user) 
 3. Station that 'Occupied' should display also by witch user its used and till when.
 to know till when a station is occupied, when user press occupy, need to display a dialog to the user that the user can select till when or for how much time it going to be used.
+4. Automatically release stations whose time has expired functionality dont works - Fixed

@@ -214,6 +214,14 @@ def get_all_devices():
         devices.append(device)
     return devices
 
+def get_device_by_id(device_id):
+    """Get a specific device by ID"""
+    devices_data = load_json_data(DEVICES_FILE)
+    for device_data in devices_data:
+        if device_data['id'] == device_id:
+            return Device(device_data)
+    return None
+
 def get_all_users():
     """Get all users from file storage"""
     users_data = load_json_data(USERS_FILE)
@@ -230,7 +238,7 @@ def create_user(username, email, password, is_admin=False):
         'email': email,
         'password_hash': generate_password_hash(password),
         'is_admin': is_admin,
-        'created_at': datetime.utcnow().isoformat()
+        'created_at': datetime.now().isoformat()
     }
     
     users.append(new_user)
@@ -259,7 +267,7 @@ def auto_release_stations():
     while True:
         try:
             stations_data = load_json_data(STATIONS_FILE)
-            current_time = datetime.utcnow()
+            current_time = datetime.now()
             updated = False
             
             for station_data in stations_data:
@@ -294,11 +302,11 @@ def ping_devices():
                 try:
                     result = ping(device_data['ip_address'], timeout=2)
                     device_data['is_online'] = result is not None
-                    device_data['last_ping'] = datetime.utcnow().isoformat()
+                    device_data['last_ping'] = datetime.now().isoformat()
                     updated = True
                 except:
                     device_data['is_online'] = False
-                    device_data['last_ping'] = datetime.utcnow().isoformat()
+                    device_data['last_ping'] = datetime.now().isoformat()
                     updated = True
             
             if updated:
@@ -366,7 +374,14 @@ def station_detail(station_id):
     if not station:
         flash('Station not found')
         return redirect(url_for('index'))
-    return render_template('station_detail.html', station=station)
+    
+    occupied_by_user = None
+    if station.is_occupied and station.occupied_by:
+        user_data = get_user_by_id(int(station.occupied_by))
+        if user_data:
+            occupied_by_user = User(user_data)
+            
+    return render_template('station_detail.html', station=station, occupied_by_user=occupied_by_user)
 
 @app.route('/occupy_station/<int:station_id>', methods=['GET', 'POST'])
 @login_required
@@ -395,7 +410,7 @@ def occupy_station(station_id):
     
     if occupation_type == 'duration':
         duration_hours = int(request.form.get('duration_hours', 1))
-        occupation_until = datetime.utcnow() + timedelta(hours=duration_hours)
+        occupation_until = datetime.now() + timedelta(hours=duration_hours)
     elif occupation_type == 'until':
         occupation_until_str = request.form.get('occupation_until')
         if occupation_until_str:
@@ -407,7 +422,7 @@ def occupy_station(station_id):
         if station_data['id'] == station_id:
             station_data['is_occupied'] = True
             station_data['occupied_by'] = current_user.id
-            station_data['occupied_at'] = datetime.utcnow().isoformat()
+            station_data['occupied_at'] = datetime.now().isoformat()
             station_data['occupied_until'] = occupation_until.isoformat() if occupation_until else None
             break
     save_json_data(STATIONS_FILE, stations_data)
@@ -485,7 +500,7 @@ def add_lab():
             'name': name,
             'description': description,
             'location': location,
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.now().isoformat()
         }
         
         labs_data.append(new_lab)
@@ -523,7 +538,7 @@ def add_station():
             'occupied_at': None,
             'occupied_until': None,
             'is_functional': is_functional,
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.now().isoformat()
         }
         
         stations_data.append(new_station)
@@ -589,7 +604,7 @@ def add_device():
             'station_id': station_id,
             'is_online': False,
             'last_ping': None,
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.now().isoformat()
         }
         
         devices_data.append(new_device)
@@ -624,7 +639,7 @@ def add_user():
             'email': email,
             'password_hash': generate_password_hash(password),
             'is_admin': is_admin,
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.now().isoformat()
         }
         
         users_data.append(new_user)
@@ -634,6 +649,110 @@ def add_user():
         return redirect(url_for('admin_panel'))
     
     return render_template('add_user.html')
+
+@app.route('/admin/lab/<int:lab_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_lab(lab_id):
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.')
+        return redirect(url_for('index'))
+
+    labs_data = load_json_data(LABS_FILE)
+    lab_data = next((lab for lab in labs_data if lab['id'] == lab_id), None)
+
+    if not lab_data:
+        flash('Lab not found')
+        return redirect(url_for('admin_panel'))
+
+    if request.method == 'POST':
+        lab_data['name'] = request.form['name']
+        lab_data['description'] = request.form['description']
+        lab_data['location'] = request.form['location']
+        save_json_data(LABS_FILE, labs_data)
+        flash('Lab updated successfully')
+        return redirect(url_for('admin_panel'))
+
+    return render_template('edit_lab.html', lab=lab_data)
+
+@app.route('/admin/station/<int:station_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_station(station_id):
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.')
+        return redirect(url_for('index'))
+
+    stations_data = load_json_data(STATIONS_FILE)
+    station_data = next((station for station in stations_data if station['id'] == station_id), None)
+
+    if not station_data:
+        flash('Station not found')
+        return redirect(url_for('admin_panel'))
+
+    if request.method == 'POST':
+        station_data['name'] = request.form['name']
+        station_data['description'] = request.form['description']
+        station_data['lab_id'] = int(request.form['lab_id'])
+        station_data['is_functional'] = 'is_functional' in request.form
+        save_json_data(STATIONS_FILE, stations_data)
+        flash('Station updated successfully')
+        return redirect(url_for('admin_panel'))
+
+    labs = get_all_labs()
+    return render_template('edit_station.html', station=station_data, labs=labs)
+
+@app.route('/admin/device/<int:device_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_device(device_id):
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.')
+        return redirect(url_for('index'))
+
+    devices_data = load_json_data(DEVICES_FILE)
+    device_data = next((device for device in devices_data if device['id'] == device_id), None)
+
+    if not device_data:
+        flash('Device not found')
+        return redirect(url_for('admin_panel'))
+
+    if request.method == 'POST':
+        device_data['name'] = request.form['name']
+        device_data['device_type'] = request.form['device_type']
+        device_data['ip_address'] = request.form['ip_address']
+        device_data['os_info'] = request.form['os_info']
+        device_data['special_apps'] = request.form['special_apps']
+        device_data['station_id'] = int(request.form['station_id'])
+        save_json_data(DEVICES_FILE, devices_data)
+        flash('Device updated successfully')
+        return redirect(url_for('admin_panel'))
+
+    stations = get_all_stations()
+    return render_template('edit_device.html', device=device_data, stations=stations)
+
+@app.route('/admin/user/<int:user_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_user(user_id):
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.')
+        return redirect(url_for('index'))
+
+    users_data = load_json_data(USERS_FILE)
+    user_data = next((user for user in users_data if user['id'] == user_id), None)
+
+    if not user_data:
+        flash('User not found')
+        return redirect(url_for('admin_panel'))
+
+    if request.method == 'POST':
+        user_data['username'] = request.form['username']
+        user_data['email'] = request.form['email']
+        if request.form['password']:
+            user_data['password_hash'] = generate_password_hash(request.form['password'])
+        user_data['is_admin'] = 'is_admin' in request.form
+        save_json_data(USERS_FILE, users_data)
+        flash('User updated successfully')
+        return redirect(url_for('admin_panel'))
+
+    return render_template('edit_user.html', user=user_data)
 
 # API routes for AJAX updates
 @app.route('/api/device_status')

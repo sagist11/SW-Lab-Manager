@@ -50,7 +50,9 @@
                 <div class="alert alert-warning">
                     <i class="fas fa-user-clock"></i> 
                     <strong>Occupied by:</strong> 
-                    {% if station.occupied_by %}
+                    {% if occupied_by_user %}
+                        {{ occupied_by_user.username }}
+                    {% elif station.occupied_by %}
                         User ID: {{ station.occupied_by }}
                     {% else %}
                         Unknown user
